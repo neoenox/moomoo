@@ -9,7 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 import json
 import logging
+import os
 from pathlib import Path
+import tempfile
 
 from moomoo_bot.row_utils import utc_now_iso
 
@@ -48,6 +50,10 @@ class SimSnapshot:
     realized_pnl: float
 
 
+class PaperStateCorruptError(RuntimeError):
+    """Existing simulator state cannot be safely loaded; do not overwrite it."""
+
+
 class PaperSimulator:
     def __init__(
         self,
@@ -75,49 +81,60 @@ class PaperSimulator:
 
         try:
             data = json.loads(simulator.state_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.warning(
-                "Failed to load paper simulator state from %s: %s; starting fresh.",
-                simulator.state_path,
-                exc,
-            )
-            return simulator
+        except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+            raise PaperStateCorruptError(
+                f"Cannot load paper simulator state from {simulator.state_path}; "
+                "existing data was left untouched."
+            ) from exc
 
-        simulator.cash = float(data.get("cash", initial_cash))
-        simulator.realized_pnl = float(data.get("realized_pnl", 0.0))
+        required = {"cash", "positions", "trades", "equity_curve"}
+        if not isinstance(data, dict) or not required.issubset(data):
+            raise PaperStateCorruptError(
+                f"Invalid paper simulator state schema in {simulator.state_path}; "
+                "existing data was left untouched."
+            )
 
-        simulator.positions = {
-            symbol: SimPosition(
-                symbol=symbol,
-                quantity=float(payload.get("quantity", 0.0)),
-                avg_cost=float(payload.get("avg_cost", 0.0)),
-            )
-            for symbol, payload in data.get("positions", {}).items()
-        }
-        simulator.trades = [
-            SimTrade(
-                trade_id=int(payload["trade_id"]),
-                timestamp=str(payload["timestamp"]),
-                symbol=str(payload["symbol"]),
-                side=str(payload["side"]),
-                quantity=float(payload["quantity"]),
-                price=float(payload["price"]),
-                notional=float(payload["notional"]),
-                realized_pnl=float(payload.get("realized_pnl", 0.0)),
-            )
-            for payload in data.get("trades", [])
-        ]
-        simulator.equity_curve = [
-            SimSnapshot(
-                timestamp=str(payload["timestamp"]),
-                cash=float(payload["cash"]),
-                market_value=float(payload["market_value"]),
-                equity=float(payload["equity"]),
-                unrealized_pnl=float(payload["unrealized_pnl"]),
-                realized_pnl=float(payload.get("realized_pnl", 0.0)),
-            )
-            for payload in data.get("equity_curve", [])
-        ]
+        try:
+            simulator.cash = float(data.get("cash", initial_cash))
+            simulator.realized_pnl = float(data.get("realized_pnl", 0.0))
+
+            simulator.positions = {
+                symbol: SimPosition(
+                    symbol=symbol,
+                    quantity=float(payload.get("quantity", 0.0)),
+                    avg_cost=float(payload.get("avg_cost", 0.0)),
+                )
+                for symbol, payload in data.get("positions", {}).items()
+            }
+            simulator.trades = [
+                SimTrade(
+                    trade_id=int(payload["trade_id"]),
+                    timestamp=str(payload["timestamp"]),
+                    symbol=str(payload["symbol"]),
+                    side=str(payload["side"]),
+                    quantity=float(payload["quantity"]),
+                    price=float(payload["price"]),
+                    notional=float(payload["notional"]),
+                    realized_pnl=float(payload.get("realized_pnl", 0.0)),
+                )
+                for payload in data.get("trades", [])
+            ]
+            simulator.equity_curve = [
+                SimSnapshot(
+                    timestamp=str(payload["timestamp"]),
+                    cash=float(payload["cash"]),
+                    market_value=float(payload["market_value"]),
+                    equity=float(payload["equity"]),
+                    unrealized_pnl=float(payload["unrealized_pnl"]),
+                    realized_pnl=float(payload.get("realized_pnl", 0.0)),
+                )
+                for payload in data.get("equity_curve", [])
+            ]
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise PaperStateCorruptError(
+                f"Invalid paper simulator state values in {simulator.state_path}; "
+                "existing data was left untouched."
+            ) from exc
         return simulator
 
     def save(self) -> None:
@@ -135,12 +152,26 @@ class PaperSimulator:
             "trades": [asdict(trade) for trade in self.trades],
             "equity_curve": [asdict(snapshot) for snapshot in self.equity_curve],
         }
-        tmp_path = self.state_path.with_suffix(".tmp")
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=True, indent=2),
-            encoding="utf-8",
-        )
-        tmp_path.replace(self.state_path)
+        # A unique same-directory temporary file avoids collisions between writers.
+        # The live state is replaced only after the complete new state is durable.
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.state_path.parent,
+                prefix=f".{self.state_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as output:
+                tmp_path = Path(output.name)
+                json.dump(payload, output, ensure_ascii=True, indent=2)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(tmp_path, self.state_path)
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
 
     def reset(self, initial_cash: float = 100_000.0) -> None:
         self.cash = float(initial_cash)
