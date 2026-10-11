@@ -128,50 +128,27 @@ def with_retry_context(
     base_delay: float = DEFAULT_BASE_DELAY,
     backoff_factor: float = DEFAULT_BACKOFF_FACTOR,
 ):
-    """Context manager for retry loops with standardized logging.
+    """Log failures from a *single* with-block execution.
 
-    Args:
-        context_name: Name to include in log messages
-        max_retries: Maximum retry attempts
-        base_delay: Initial delay seconds
-        backoff_factor: Exponential backoff multiplier
+    A contextmanager cannot re-execute the body of a `with` statement; yielding
+    again after an exception masks the original error with contextlib's
+    "generator didn't stop after throw()" RuntimeError. Use `@with_retries(...)`
+    on a callable when retrying its execution is required.
+
+    Retry parameters are retained for compatibility with existing callers but
+    cannot apply to a contextmanager's body.
     """
     from contextlib import contextmanager
 
     @contextmanager
-    def retry_context(*, logger_extra: dict | None = None):
-        delay = base_delay
-        last_exc = None
-
-        for attempt in range(1, max_retries + 2):
-            try:
-                yield
-                return
-            except TRANSIENT_EXCEPTIONS as exc:
-                last_exc = exc
-                if attempt <= max_retries + 1:
-                    logger.warning(
-                        "%s attempt %d/%d failed: %s; retrying in %.1fs",
-                        context_name,
-                        attempt,
-                        max_retries + 1,
-                        exc,
-                        min(delay, max_delay := 30.0),
-                        extra=logger_extra or {},
-                    )
-                    time.sleep(min(delay, max_delay))
-                    delay *= backoff_factor
-                    continue
-                logger.error(
-                    "%s failed after %d attempts: %s",
-                    context_name,
-                    attempt,
-                    exc,
-                    extra=logger_extra or {},
-                )
-                raise
-
-        if last_exc:
-            raise last_exc
+    def retry_context():
+        try:
+            yield
+        except TRANSIENT_EXCEPTIONS:
+            logger.exception(
+                "%s failed inside a context manager; use with_retries for retry",
+                context_name,
+            )
+            raise
 
     return retry_context()
