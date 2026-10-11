@@ -17,7 +17,7 @@ from moomoo_bot.paper_simulator import PaperSimulator, PaperStateCorruptError
         b'{"cash": "not-a-number", "positions": {}, "trades": [], "equity_curve": []}',
         b'{"cash": 100, "positions": [], "trades": [], "equity_curve": []}',
         b'{"cash": 100, "positions": {}, "trades": [{}], "equity_curve": []}',
-        b"\\xff",
+        bytes([0xFF]),
     ],
 )
 def test_corrupt_existing_state_fails_closed(tmp_path: Path, invalid: bytes) -> None:
