@@ -255,7 +255,9 @@ class PaperSimulator:
             realized = _finite_float((px - current.avg_cost) * qty, "realized_pnl")
             current.quantity -= qty
             self.cash = _finite_float(self.cash + notional, "cash")
-            self.realized_pnl = _finite_float(self.realized_pnl + realized, "realized_pnl")
+            self.realized_pnl = _finite_float(
+                self.realized_pnl + realized, "realized_pnl"
+            )
 
         if current.quantity <= 0.0:
             self.positions.pop(normalized_symbol, None)
