@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -19,6 +20,19 @@ logger = logging.getLogger(__name__)
 
 
 _DEFAULT_SIM_DB = Path.home() / ".moomoo_bot" / "paper-sim-state.json"
+
+
+def _finite_float(value: object, field: str) -> float:
+    """Convert a persisted or external numeric value, rejecting NaN and infinity."""
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be a finite number")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{field} must be a finite number") from exc
+    if not math.isfinite(result):
+        raise ValueError(f"{field} must be a finite number")
+    return result
 
 
 @dataclass
@@ -63,7 +77,7 @@ class PaperSimulator:
         self.state_path = state_path or _DEFAULT_SIM_DB
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.cash: float = float(initial_cash)
+        self.cash: float = _finite_float(initial_cash, "initial_cash")
         self.realized_pnl: float = 0.0
         self.positions: dict[str, SimPosition] = {}
         self.trades: list[SimTrade] = []
@@ -95,14 +109,14 @@ class PaperSimulator:
             )
 
         try:
-            simulator.cash = float(data.get("cash", initial_cash))
-            simulator.realized_pnl = float(data.get("realized_pnl", 0.0))
+            simulator.cash = _finite_float(data.get("cash", initial_cash), "cash")
+            simulator.realized_pnl = _finite_float(data.get("realized_pnl", 0.0), "realized_pnl")
 
             simulator.positions = {
                 symbol: SimPosition(
                     symbol=symbol,
-                    quantity=float(payload.get("quantity", 0.0)),
-                    avg_cost=float(payload.get("avg_cost", 0.0)),
+                    quantity=_finite_float(payload.get("quantity", 0.0), "position.quantity"),
+                    avg_cost=_finite_float(payload.get("avg_cost", 0.0), "position.avg_cost"),
                 )
                 for symbol, payload in data.get("positions", {}).items()
             }
@@ -112,20 +126,20 @@ class PaperSimulator:
                     timestamp=str(payload["timestamp"]),
                     symbol=str(payload["symbol"]),
                     side=str(payload["side"]),
-                    quantity=float(payload["quantity"]),
-                    price=float(payload["price"]),
-                    notional=float(payload["notional"]),
-                    realized_pnl=float(payload.get("realized_pnl", 0.0)),
+                    quantity=_finite_float(payload["quantity"], "trade.quantity"),
+                    price=_finite_float(payload["price"], "trade.price"),
+                    notional=_finite_float(payload["notional"], "trade.notional"),
+                    realized_pnl=_finite_float(payload.get("realized_pnl", 0.0), "trade.realized_pnl"),
                 )
                 for payload in data.get("trades", [])
             ]
             simulator.equity_curve = [
                 SimSnapshot(
                     timestamp=str(payload["timestamp"]),
-                    cash=float(payload["cash"]),
-                    market_value=float(payload["market_value"]),
-                    equity=float(payload["equity"]),
-                    unrealized_pnl=float(payload["unrealized_pnl"]),
+                    cash=_finite_float(payload["cash"], "snapshot.cash"),
+                    market_value=_finite_float(payload["market_value"], "snapshot.market_value"),
+                    equity=_finite_float(payload["equity"], "snapshot.equity"),
+                    unrealized_pnl=_finite_float(payload["unrealized_pnl"], "snapshot.unrealized_pnl"),
                     realized_pnl=float(payload.get("realized_pnl", 0.0)),
                 )
                 for payload in data.get("equity_curve", [])
@@ -165,7 +179,7 @@ class PaperSimulator:
                 delete=False,
             ) as output:
                 tmp_path = Path(output.name)
-                json.dump(payload, output, ensure_ascii=True, indent=2)
+                json.dump(payload, output, ensure_ascii=True, indent=2, allow_nan=False)
                 output.flush()
                 os.fsync(output.fileno())
             os.replace(tmp_path, self.state_path)
@@ -174,7 +188,7 @@ class PaperSimulator:
                 tmp_path.unlink(missing_ok=True)
 
     def reset(self, initial_cash: float = 100_000.0) -> None:
-        self.cash = float(initial_cash)
+        self.cash = _finite_float(initial_cash, "initial_cash")
         self.realized_pnl = 0.0
         self.positions = {}
         self.trades = []
@@ -191,8 +205,8 @@ class PaperSimulator:
     ) -> SimTrade:
         normalized_symbol = str(symbol).strip().upper()
         normalized_side = str(side).strip().upper()
-        qty = float(quantity)
-        px = float(price)
+        qty = _finite_float(quantity, "quantity")
+        px = _finite_float(price, "price")
 
         if normalized_side not in {"BUY", "SELL"}:
             raise ValueError("side must be BUY or SELL")
@@ -203,7 +217,7 @@ class PaperSimulator:
         if px <= 0.0:
             raise ValueError("price must be positive")
 
-        notional = qty * px
+        notional = _finite_float(qty * px, "notional")
         realized = 0.0
 
         current = self.positions.get(normalized_symbol)
@@ -248,11 +262,14 @@ class PaperSimulator:
         market_value = 0.0
         unrealized_pnl = 0.0
         for symbol, position in self.positions.items():
-            price = float(prices.get(symbol, position.avg_cost))
-            market_value += position.quantity * price
-            unrealized_pnl += (price - position.avg_cost) * position.quantity
+            price = _finite_float(prices.get(symbol, position.avg_cost), f"price for {symbol}")
+            market_value = _finite_float(market_value + position.quantity * price, "market_value")
+            unrealized_pnl = _finite_float(
+                unrealized_pnl + (price - position.avg_cost) * position.quantity,
+                "unrealized_pnl",
+            )
 
-        equity = self.cash + market_value
+        equity = _finite_float(self.cash + market_value, "equity")
         snapshot = SimSnapshot(
             timestamp=utc_now_iso(),
             cash=self.cash,
