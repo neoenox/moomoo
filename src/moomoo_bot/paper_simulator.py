@@ -110,13 +110,19 @@ class PaperSimulator:
 
         try:
             simulator.cash = _finite_float(data.get("cash", initial_cash), "cash")
-            simulator.realized_pnl = _finite_float(data.get("realized_pnl", 0.0), "realized_pnl")
+            simulator.realized_pnl = _finite_float(
+                data.get("realized_pnl", 0.0), "realized_pnl"
+            )
 
             simulator.positions = {
                 symbol: SimPosition(
                     symbol=symbol,
-                    quantity=_finite_float(payload.get("quantity", 0.0), "position.quantity"),
-                    avg_cost=_finite_float(payload.get("avg_cost", 0.0), "position.avg_cost"),
+                    quantity=_finite_float(
+                        payload.get("quantity", 0.0), "position.quantity"
+                    ),
+                    avg_cost=_finite_float(
+                        payload.get("avg_cost", 0.0), "position.avg_cost"
+                    ),
                 )
                 for symbol, payload in data.get("positions", {}).items()
             }
@@ -129,7 +135,9 @@ class PaperSimulator:
                     quantity=_finite_float(payload["quantity"], "trade.quantity"),
                     price=_finite_float(payload["price"], "trade.price"),
                     notional=_finite_float(payload["notional"], "trade.notional"),
-                    realized_pnl=_finite_float(payload.get("realized_pnl", 0.0), "trade.realized_pnl"),
+                    realized_pnl=_finite_float(
+                        payload.get("realized_pnl", 0.0), "trade.realized_pnl"
+                    ),
                 )
                 for payload in data.get("trades", [])
             ]
@@ -137,10 +145,16 @@ class PaperSimulator:
                 SimSnapshot(
                     timestamp=str(payload["timestamp"]),
                     cash=_finite_float(payload["cash"], "snapshot.cash"),
-                    market_value=_finite_float(payload["market_value"], "snapshot.market_value"),
+                    market_value=_finite_float(
+                        payload["market_value"], "snapshot.market_value"
+                    ),
                     equity=_finite_float(payload["equity"], "snapshot.equity"),
-                    unrealized_pnl=_finite_float(payload["unrealized_pnl"], "snapshot.unrealized_pnl"),
-                    realized_pnl=float(payload.get("realized_pnl", 0.0)),
+                    unrealized_pnl=_finite_float(
+                        payload["unrealized_pnl"], "snapshot.unrealized_pnl"
+                    ),
+                    realized_pnl=_finite_float(
+                        payload.get("realized_pnl", 0.0), "snapshot.realized_pnl"
+                    ),
                 )
                 for payload in data.get("equity_curve", [])
             ]
@@ -153,15 +167,15 @@ class PaperSimulator:
 
     def save(self) -> None:
         payload = {
-            "cash": self.cash,
-            "realized_pnl": self.realized_pnl,
+            "cash": _finite_float(self.cash, "cash"),
+            "realized_pnl": _finite_float(self.realized_pnl, "realized_pnl"),
             "positions": {
                 symbol: {
-                    "quantity": position.quantity,
-                    "avg_cost": position.avg_cost,
+                    "quantity": _finite_float(position.quantity, "position.quantity"),
+                    "avg_cost": _finite_float(position.avg_cost, "position.avg_cost"),
                 }
                 for symbol, position in self.positions.items()
-                if position.quantity > 0.0
+                if _finite_float(position.quantity, "position.quantity") > 0.0
             },
             "trades": [asdict(trade) for trade in self.trades],
             "equity_curve": [asdict(snapshot) for snapshot in self.equity_curve],
@@ -227,18 +241,21 @@ class PaperSimulator:
         if normalized_side == "BUY":
             if notional > self.cash:
                 raise ValueError("insufficient cash")
-            new_qty = current.quantity + qty
-            new_avg_cost = ((current.avg_cost * current.quantity) + notional) / new_qty
+            new_qty = _finite_float(current.quantity + qty, "position.quantity")
+            new_avg_cost = _finite_float(
+                ((current.avg_cost * current.quantity) + notional) / new_qty,
+                "position.avg_cost",
+            )
             current.quantity = new_qty
             current.avg_cost = new_avg_cost
-            self.cash -= notional
+            self.cash = _finite_float(self.cash - notional, "cash")
         else:
             if qty > current.quantity:
                 raise ValueError("insufficient position")
-            realized = (px - current.avg_cost) * qty
+            realized = _finite_float((px - current.avg_cost) * qty, "realized_pnl")
             current.quantity -= qty
-            self.cash += notional
-            self.realized_pnl += realized
+            self.cash = _finite_float(self.cash + notional, "cash")
+            self.realized_pnl = _finite_float(self.realized_pnl + realized, "realized_pnl")
 
         if current.quantity <= 0.0:
             self.positions.pop(normalized_symbol, None)
@@ -262,8 +279,12 @@ class PaperSimulator:
         market_value = 0.0
         unrealized_pnl = 0.0
         for symbol, position in self.positions.items():
-            price = _finite_float(prices.get(symbol, position.avg_cost), f"price for {symbol}")
-            market_value = _finite_float(market_value + position.quantity * price, "market_value")
+            price = _finite_float(
+                prices.get(symbol, position.avg_cost), f"price for {symbol}"
+            )
+            market_value = _finite_float(
+                market_value + position.quantity * price, "market_value"
+            )
             unrealized_pnl = _finite_float(
                 unrealized_pnl + (price - position.avg_cost) * position.quantity,
                 "unrealized_pnl",
@@ -276,7 +297,7 @@ class PaperSimulator:
             market_value=market_value,
             equity=equity,
             unrealized_pnl=unrealized_pnl,
-            realized_pnl=self.realized_pnl,
+            realized_pnl=_finite_float(self.realized_pnl, "realized_pnl"),
         )
         self.equity_curve.append(snapshot)
         return snapshot
