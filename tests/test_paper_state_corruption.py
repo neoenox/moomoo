@@ -23,6 +23,7 @@ from moomoo_bot.paper_simulator import PaperSimulator, PaperStateCorruptError
         b'{"cash": 100, "positions": {"US.AAPL": {"quantity": NaN, "avg_cost": 10}}, "trades": [], "equity_curve": []}',
         b'{"cash": 100, "positions": {}, "trades": [{"trade_id": 1, "timestamp": "t", "symbol": "US.AAPL", "side": "BUY", "quantity": 1, "price": Infinity, "notional": 10, "realized_pnl": 0}], "equity_curve": []}',
         b'{"cash": 100, "positions": {}, "trades": [], "equity_curve": [{"timestamp": "t", "cash": 100, "market_value": 1, "equity": -Infinity, "unrealized_pnl": 0, "realized_pnl": 0}]}',
+        b'{"cash": 100, "positions": {}, "trades": [], "equity_curve": [{"timestamp": "t", "cash": 100, "market_value": 1, "equity": 100, "unrealized_pnl": 0, "realized_pnl": NaN}]}',
     ],
 )
 def test_corrupt_existing_state_fails_closed(tmp_path: Path, invalid: bytes) -> None:
@@ -50,7 +51,6 @@ def test_existing_trades_survive_round_trip(tmp_path: Path) -> None:
     reloaded = PaperSimulator.load(state_path=state)
     assert len(reloaded.trades) == 1
     assert reloaded.positions["US.AAPL"].quantity == 1
-
 
 
 def test_non_finite_order_and_market_values_are_rejected(tmp_path: Path) -> None:
