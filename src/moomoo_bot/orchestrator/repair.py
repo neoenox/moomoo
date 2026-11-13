@@ -7,7 +7,9 @@ Related: orchestrator/__init__.py, orchestrator/helpers.py.
 from __future__ import annotations
 
 import logging
-import shutil
+import os
+import sqlite3
+import tempfile
 from time import sleep
 
 from moomoo import Session, TrdEnv, TrdSide
@@ -119,26 +121,62 @@ def _clear_state_files(state_store: StateStore) -> None:
     db_path = state_store.db_path
     if db_path.exists():
         backup_path = db_path.with_suffix(".db.bak")
-        shutil.copy2(str(db_path), str(backup_path))
+        descriptor, temporary_path = tempfile.mkstemp(
+            prefix=f".{backup_path.name}.",
+            suffix=".tmp",
+            dir=str(backup_path.parent),
+        )
+        os.close(descriptor)
+        try:
+            source = state_store._connect()
+            with state_store._lock:
+                destination = sqlite3.connect(temporary_path)
+                try:
+                    # The source uses WAL mode. SQLite's backup API includes
+                    # committed WAL frames in one consistent database snapshot.
+                    source.backup(destination)
+                    integrity = destination.execute("PRAGMA integrity_check").fetchone()
+                    if integrity is None or integrity[0] != "ok":
+                        raise sqlite3.DatabaseError(
+                            f"SQLite backup integrity_check failed: {integrity!r}"
+                        )
+                finally:
+                    destination.close()
+            # Publish only a complete, verified backup. A failed copy leaves
+            # the previous .db.bak intact and prevents the destructive reset.
+            os.replace(temporary_path, backup_path)
+        except Exception:
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
+            raise
         logger.warning("Backing up and clearing state data: %s", db_path)
 
     conn = state_store._connect()
-    with state_store._lock:
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-            )
-            tables = [row[0] for row in cursor.fetchall()]
-            for table in tables:
-                conn.execute(f"DELETE FROM {table}")
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            conn.commit()
-            conn.execute("VACUUM")
-        except Exception:
-            conn.rollback()
-            raise
-    state_store.close()
+    try:
+        with state_store._lock:
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                cursor = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                )
+                tables = [row[0] for row in cursor.fetchall()]
+                for table in tables:
+                    conn.execute(f"DELETE FROM {table}")
+                conn.commit()
+                checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                if checkpoint is not None and int(checkpoint[0]) != 0:
+                    raise sqlite3.OperationalError(
+                        f"SQLite WAL checkpoint remained busy: {checkpoint!r}"
+                    )
+                conn.execute("VACUUM")
+            except Exception:
+                if conn.in_transaction:
+                    conn.rollback()
+                raise
+    finally:
+        state_store.close()
 
 
 def run_paper_repair(
