@@ -154,22 +154,29 @@ def _clear_state_files(state_store: StateStore) -> None:
         logger.warning("Backing up and clearing state data: %s", db_path)
 
     conn = state_store._connect()
-    with state_store._lock:
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-            )
-            tables = [row[0] for row in cursor.fetchall()]
-            for table in tables:
-                conn.execute(f"DELETE FROM {table}")
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            conn.commit()
-            conn.execute("VACUUM")
-        except Exception:
-            conn.rollback()
-            raise
-    state_store.close()
+    try:
+        with state_store._lock:
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                cursor = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                )
+                tables = [row[0] for row in cursor.fetchall()]
+                for table in tables:
+                    conn.execute(f"DELETE FROM {table}")
+                conn.commit()
+                checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                if checkpoint is not None and int(checkpoint[0]) != 0:
+                    raise sqlite3.OperationalError(
+                        f"SQLite WAL checkpoint remained busy: {checkpoint!r}"
+                    )
+                conn.execute("VACUUM")
+            except Exception:
+                if conn.in_transaction:
+                    conn.rollback()
+                raise
+    finally:
+        state_store.close()
 
 
 def run_paper_repair(
