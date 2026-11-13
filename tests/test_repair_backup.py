@@ -55,9 +55,10 @@ def test_backup_failure_keeps_source_database_untouched(tmp_path: Path) -> None:
         with pytest.raises(OSError):
             _clear_state_files(store)
 
-        assert store._connect().execute(
+        row = store._connect().execute(
             "SELECT account_value FROM equity_curve"
-        ).fetchone() == (1234.5,)
+        ).fetchone()
+        assert row["account_value"] == 1234.5
         assert list(tmp_path.glob(".paper-state.db.bak.*.tmp")) == []
     finally:
         store.close()
