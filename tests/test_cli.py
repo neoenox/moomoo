@@ -107,17 +107,13 @@ def test_autopilot_requires_paper_mode(monkeypatch) -> None:
         cli.autopilot()
 
 
-def test_live_trade_requires_explicit_confirmation(monkeypatch) -> None:
-    settings = Settings(
-        symbols="US.AAPL",
-        benchmark_symbol="US.VT",
-        execution_mode="live",
-        allow_live_trading=True,
-    )
+def test_live_trade_is_disabled_before_loading_settings(monkeypatch) -> None:
+    def unexpected_settings_load():
+        pytest.fail("disabled live command must not load settings or a broker client")
 
-    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "get_settings", unexpected_settings_load)
 
-    with pytest.raises(typer.BadParameter, match="--confirm-live-trading"):
+    with pytest.raises(typer.BadParameter, match="live-trade is disabled"):
         cli.live_trade(
             symbols=None,
             benchmark_symbol=None,
@@ -125,11 +121,11 @@ def test_live_trade_requires_explicit_confirmation(monkeypatch) -> None:
             capital=None,
             fx_jpy_per_usd=None,
             minimum_order_value=5.0,
-            confirm_live_trading=False,
+            confirm_live_trading=True,
         )
 
 
-def test_live_trade_delegates_to_orchestrator_with_real_env(monkeypatch) -> None:
+def test_live_trade_never_delegates_even_when_legacy_live_flags_are_set(monkeypatch) -> None:
     settings = Settings(
         symbols="US.AAPL",
         benchmark_symbol="US.VT",
@@ -137,26 +133,25 @@ def test_live_trade_delegates_to_orchestrator_with_real_env(monkeypatch) -> None
         allow_live_trading=True,
     )
     calls: list[dict] = []
-
-    def fake_run_one_shot_trade(**kwargs):
-        calls.append(kwargs)
-
     monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(orchestrator, "run_one_shot_trade", fake_run_one_shot_trade)
-
-    cli.live_trade(
-        symbols=None,
-        benchmark_symbol=None,
-        history_days=2200,
-        capital=None,
-        fx_jpy_per_usd=None,
-        minimum_order_value=5.0,
-        confirm_live_trading=True,
+    monkeypatch.setattr(
+        orchestrator,
+        "run_one_shot_trade",
+        lambda **kwargs: calls.append(kwargs),
     )
 
-    assert len(calls) == 1
-    assert calls[0]["trade_env"] == TrdEnv.REAL
-    assert calls[0]["max_position_weight"] == settings.live_max_position_weight
+    with pytest.raises(typer.BadParameter, match="live-trade is disabled"):
+        cli.live_trade(
+            symbols=None,
+            benchmark_symbol=None,
+            history_days=2200,
+            capital=None,
+            fx_jpy_per_usd=None,
+            minimum_order_value=5.0,
+            confirm_live_trading=True,
+        )
+
+    assert calls == []
 
 
 def test_paper_trade_delegates_to_orchestrator(monkeypatch) -> None:
@@ -186,29 +181,18 @@ def test_paper_trade_delegates_to_orchestrator(monkeypatch) -> None:
 
     assert len(calls) == 1
     assert calls[0]["trade_env"] == TrdEnv.SIMULATE
+    assert calls[0]["use_local_sim"] is True
     assert calls[0]["max_position_weight"] == settings.live_max_position_weight
 
 
-def test_paper_repair_delegates_to_orchestrator(monkeypatch) -> None:
-    settings = Settings(
-        symbols="US.AAPL",
-        benchmark_symbol="US.VT",
-        execution_mode="paper",
-    )
-    calls: list[dict] = []
+def test_paper_repair_is_disabled_before_loading_settings(monkeypatch) -> None:
+    def unexpected_settings_load():
+        pytest.fail("disabled repair command must not load settings or a broker client")
 
-    def fake_run_paper_repair(**kwargs):
-        calls.append(kwargs)
+    monkeypatch.setattr(cli, "get_settings", unexpected_settings_load)
 
-    monkeypatch.setattr(cli, "get_settings", lambda: settings)
-    monkeypatch.setattr(orchestrator, "run_paper_repair", fake_run_paper_repair)
-
-    cli.paper_repair(benchmark_symbol=None, clear_local_state=True)
-
-    assert len(calls) == 1
-    assert calls[0]["settings"] == settings
-    assert calls[0]["benchmark_symbol"] == "US.VT"
-    assert calls[0]["clear_local_state"] is True
+    with pytest.raises(typer.BadParameter, match="paper-repair is disabled"):
+        cli.paper_repair(benchmark_symbol=None, clear_local_state=True)
 
 
 def test_paper_run_delegates_to_orchestrator_with_submit_orders_false(
