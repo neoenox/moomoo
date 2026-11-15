@@ -36,7 +36,7 @@ pytest
 On Windows, you can also double-click a batch file from the repository root to run the bot:
 
 - `run-paper-trade.bat` runs the local PaperSimulator; it does not submit broker orders.
-- `run-auto-run.bat` runs the dedicated auto-monitoring flow.
+- `moomoo-bot auto-run` / `moomoo-bot autopilot` run the local PaperSimulator; `run-paper-studio.bat` opens the local simulation UI.
 
 The `paper-trade` command records orders in the local PaperSimulator only. There is no broker API order-submission path exposed by the CLI.
 
