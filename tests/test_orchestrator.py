@@ -813,11 +813,11 @@ def test_run_auto_monitor_uses_injected_sleep_and_local_simulator(tmp_path, monk
     assert trade_client.submit_order_calls == 0
     from moomoo_bot.paper_simulator import PaperSimulator
     simulator = PaperSimulator.load(state_path=tmp_path / "paper-sim-state.json")
-    assert len(simulator.trades) == 2
+    assert len(simulator.trades) == 1
     assert sleep_calls == [1]
 
 
-def test_run_auto_monitor_uses_local_sim_without_broker_order_reconciliation(tmp_path, monkeypatch) -> None:
+def test_run_auto_monitor_reconciles_existing_orders_read_only_and_uses_local_sim(tmp_path, monkeypatch) -> None:
     settings = Settings(
         symbols="US.AAPL",
         benchmark_symbol="US.VT",
@@ -884,10 +884,10 @@ def test_run_auto_monitor_uses_local_sim_without_broker_order_reconciliation(tmp
     except KeyboardInterrupt:
         pass
 
-    # The local-only monitor never reconciles or submits broker API orders.
-    assert state_store.order_status_updates == []
+    # Existing broker orders are reconciled read-only; new broker orders are never submitted.
+    assert state_store.order_status_updates == [("pending-1", "filled_all", 2.0)]
     assert state_store.cleanup_calls == [30]
-    assert trade_client.get_order_frame_calls == 0
+    assert trade_client.get_order_frame_calls == 1
     assert trade_client.submit_order_calls == 0
     assert sleep_calls == [1]
 
