@@ -225,6 +225,7 @@ def test_paper_run_delegates_to_orchestrator_with_submit_orders_false(
     assert len(calls) == 1
     assert calls[0]["trade_env"] == TrdEnv.SIMULATE
     assert calls[0]["submit_orders"] is False
+    assert calls[0]["use_local_sim"] is True
     assert calls[0]["max_position_weight"] == settings.live_max_position_weight
 
 
