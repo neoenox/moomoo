@@ -117,6 +117,7 @@ def run_auto_monitor(
                     strategy=strategy,
                     state_store=state_store,
                     submit_orders=True,
+                    use_local_sim=True,
                     auto_mode=True,
                     mode_label=mode_label,
                 )
