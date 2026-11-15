@@ -267,10 +267,12 @@ def test_run_auto_monitor_retries_on_failure_then_stops(monkeypatch):
     settings = _default_settings()
     sleep_calls: list[float] = []
     cycle_calls = 0
+    cycle_kwargs: list[dict] = []
 
     def fake_execute_trading_cycle(**kwargs):
         nonlocal cycle_calls
         cycle_calls += 1
+        cycle_kwargs.append(kwargs)
         raise RuntimeError("simulated failure")
 
     def fake_sleep(seconds: float) -> None:
@@ -299,11 +301,12 @@ def test_run_auto_monitor_retries_on_failure_then_stops(monkeypatch):
 
     # Should have called cycle exactly max_consecutive_failures times then stopped
     assert cycle_calls == 3
+    assert all(kwargs["use_local_sim"] is True for kwargs in cycle_kwargs)
     # Should have slept with backoff between failures
     assert len(sleep_calls) == 2  # sleep after failure 1 and 2, stop after 3
 
 
-def test_run_auto_monitor_sleeps_between_cycles():
+def test_run_auto_monitor_sleeps_between_cycles(tmp_path, monkeypatch):
     """Monitor calls sleep between successful trading cycles."""
     from moomoo_bot import orchestrator
 
@@ -312,6 +315,9 @@ def test_run_auto_monitor_sleeps_between_cycles():
     trade_client = FakeTradeClient()
     strategy = FakeStrategy()
     state_store = FakeStateStore()
+    import moomoo_bot.orchestrator.cycle as cycle_module
+    monkeypatch.setattr(cycle_module, "_LOCAL_SIM_PATH", tmp_path / "paper-sim-state.json")
+    monkeypatch.setattr(cycle_module, "_LOCAL_SIM_STATE_DB_PATH", tmp_path / "paper-sim-state.db")
     sleep_calls: list[float] = []
 
     def fake_sleep(seconds: float) -> None:
@@ -340,14 +346,18 @@ def test_run_auto_monitor_sleeps_between_cycles():
 
     assert sleep_calls == [900]
     assert strategy.decide_calls == 1
+    assert trade_client.submit_order_calls == 0
 
 
-def test_run_auto_monitor_records_equity_after_cycle():
+def test_run_auto_monitor_records_equity_after_cycle(tmp_path, monkeypatch):
     """Monitor records equity snapshot after each successful cycle."""
     from moomoo_bot import orchestrator
 
     settings = _default_settings()
     state_store = FakeStateStore()
+    import moomoo_bot.orchestrator.cycle as cycle_module
+    monkeypatch.setattr(cycle_module, "_LOCAL_SIM_PATH", tmp_path / "paper-sim-state.json")
+    monkeypatch.setattr(cycle_module, "_LOCAL_SIM_STATE_DB_PATH", tmp_path / "paper-sim-state.db")
     sleep_calls: list[float] = []
 
     def fake_sleep(seconds: float) -> None:
@@ -375,3 +385,4 @@ def test_run_auto_monitor_records_equity_after_cycle():
         pass
 
     assert len(state_store.recorded_equity) >= 1
+    assert trade_client.submit_order_calls == 0
