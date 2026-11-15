@@ -356,6 +356,7 @@ def test_run_auto_monitor_records_equity_after_cycle(tmp_path, monkeypatch):
 
     settings = _default_settings()
     state_store = FakeStateStore()
+    trade_client = FakeTradeClient()
     import moomoo_bot.orchestrator.cycle as cycle_module
     monkeypatch.setattr(cycle_module, "_LOCAL_SIM_PATH", tmp_path / "paper-sim-state.json")
     monkeypatch.setattr(cycle_module, "_LOCAL_SIM_STATE_DB_PATH", tmp_path / "paper-sim-state.db")
