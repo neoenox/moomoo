@@ -315,6 +315,7 @@ def test_run_auto_monitor_sleeps_between_cycles(tmp_path, monkeypatch):
     trade_client = FakeTradeClient()
     strategy = FakeStrategy()
     state_store = FakeStateStore()
+    trade_client = FakeTradeClient()
     import moomoo_bot.orchestrator.cycle as cycle_module
     monkeypatch.setattr(cycle_module, "_LOCAL_SIM_PATH", tmp_path / "paper-sim-state.json")
     monkeypatch.setattr(cycle_module, "_LOCAL_SIM_STATE_DB_PATH", tmp_path / "paper-sim-state.db")
@@ -376,7 +377,7 @@ def test_run_auto_monitor_records_equity_after_cycle(tmp_path, monkeypatch):
             poll_seconds=1,
             max_consecutive_failures=5,
             quote_client=FakeQuoteClient(),
-            trade_client=FakeTradeClient(),
+            trade_client=trade_client,
             strategy=FakeStrategy(),
             sleep_fn=fake_sleep,
             state_store=state_store,
