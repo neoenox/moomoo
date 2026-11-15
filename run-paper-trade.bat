@@ -18,11 +18,11 @@ if not exist "%PYTHON%" (
 
 set "MOOMOO_BOT_EXECUTION_MODE=paper"
 
-echo Starting PAPER one-shot trade via Moomoo OpenD demo account...
+echo Starting local PaperSimulator; no broker API orders will be submitted...
 
 if "%FX_JPY_PER_USD%"=="" (
-    "%PYTHON%" -m moomoo_bot.cli paper-trade --capital %CAPITAL% --history-days %HISTORY_DAYS%
+    "%PYTHON%" -m moomoo_bot.cli paper-trade --local-sim --capital %CAPITAL% --history-days %HISTORY_DAYS%
 ) else (
-    "%PYTHON%" -m moomoo_bot.cli paper-trade --capital %CAPITAL% --history-days %HISTORY_DAYS% --fx-jpy-per-usd %FX_JPY_PER_USD%
+    "%PYTHON%" -m moomoo_bot.cli paper-trade --local-sim --capital %CAPITAL% --history-days %HISTORY_DAYS% --fx-jpy-per-usd %FX_JPY_PER_USD%
 )
 exit /b %errorlevel%
