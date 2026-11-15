@@ -60,6 +60,7 @@ def paper_run(
         minimum_order_value=minimum_order_value,
         max_position_weight=settings.live_max_position_weight,
         submit_orders=False,
+        use_local_sim=True,
     )
 
 
