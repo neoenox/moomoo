@@ -32,7 +32,7 @@ HISTORY_DAYS="${HISTORY_DAYS:-2200}"
 FX_JPY_PER_USD="${FX_JPY_PER_USD:-}"
 
 if [ -z "$FX_JPY_PER_USD" ]; then
-  "$PYTHON_BIN" -m moomoo_bot paper-trade --capital "$CAPITAL" --history-days "$HISTORY_DAYS" --minimum-order-value 5.0
+  "$PYTHON_BIN" -m moomoo_bot paper-trade --local-sim --capital "$CAPITAL" --history-days "$HISTORY_DAYS" --minimum-order-value 5.0
 else
   "$PYTHON_BIN" -m moomoo_bot paper-trade --capital "$CAPITAL" --history-days "$HISTORY_DAYS" --fx-jpy-per-usd "$FX_JPY_PER_USD" --minimum-order-value 5.0
 fi
