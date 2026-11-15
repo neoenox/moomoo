@@ -15,7 +15,6 @@ from moomoo_bot.cli_render import render_execution_report  # noqa: F401
 
 from moomoo_bot._cli_trading import (  # noqa: F401
     _require_paper_mode,
-    _require_live_mode,
     paper_run,
     paper_trade,
     paper_repair,
