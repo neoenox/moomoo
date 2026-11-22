@@ -13,7 +13,6 @@ from time import sleep
 
 from moomoo import TrdEnv
 
-from moomoo_bot.cli_helpers import trade_mode_label as _trade_mode_label
 from moomoo_bot.cli_render import console
 from moomoo_bot.kill_switch import is_kill_switch_active as _is_kill_switch_active
 from moomoo_bot.notify import (
@@ -54,7 +53,7 @@ def run_auto_monitor(
     from moomoo_bot.orchestrator.cycle import execute_trading_cycle
 
     sleep_fn = sleep_fn or sleep
-    mode_label = _trade_mode_label(TrdEnv.SIMULATE)
+    mode_label = "LOCAL_SIM"
     webhook_url = webhook_str(settings)
     console.print(
         f"Starting auto-run monitor for {', '.join(symbols)} vs {benchmark_symbol}; "
@@ -117,6 +116,7 @@ def run_auto_monitor(
                     strategy=strategy,
                     state_store=state_store,
                     submit_orders=True,
+                    use_local_sim=True,
                     auto_mode=True,
                     mode_label=mode_label,
                 )

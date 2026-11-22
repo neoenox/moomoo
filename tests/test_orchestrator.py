@@ -767,7 +767,7 @@ def test_run_one_shot_trade_persists_daily_order_count_after_submit() -> None:
     assert state_store.saved_states[-1].daily_order_date == "2025-01-03"
 
 
-def test_run_auto_monitor_uses_injected_sleep_and_clients() -> None:
+def test_run_auto_monitor_uses_injected_sleep_and_local_simulator(tmp_path, monkeypatch) -> None:
     settings = Settings(
         symbols="US.AAPL",
         benchmark_symbol="US.VT",
@@ -779,6 +779,9 @@ def test_run_auto_monitor_uses_injected_sleep_and_clients() -> None:
     trade_client = FakeTradeClient()
     strategy = FakeStrategy()
     state_store = FakeStateStore()
+    import moomoo_bot.orchestrator.cycle as cycle_module
+    monkeypatch.setattr(cycle_module, "_LOCAL_SIM_PATH", tmp_path / "paper-sim-state.json")
+    monkeypatch.setattr(cycle_module, "_LOCAL_SIM_STATE_DB_PATH", tmp_path / "paper-sim-state.db")
     sleep_calls: list[int] = []
 
     def fake_sleep(seconds: int) -> None:
@@ -807,11 +810,14 @@ def test_run_auto_monitor_uses_injected_sleep_and_clients() -> None:
 
     assert strategy.decide_calls == 1
     assert quote_client.fetch_price_panel_calls == 1
-    assert trade_client.submit_order_calls == 1
+    assert trade_client.submit_order_calls == 0
+    from moomoo_bot.paper_simulator import PaperSimulator
+    simulator = PaperSimulator.load(state_path=tmp_path / "paper-sim-state.json")
+    assert len(simulator.trades) == 1
     assert sleep_calls == [1]
 
 
-def test_run_auto_monitor_cleans_equity_history_and_reconciles_pending_orders() -> None:
+def test_run_auto_monitor_reconciles_existing_orders_read_only_and_uses_local_sim(tmp_path, monkeypatch) -> None:
     settings = Settings(
         symbols="US.AAPL",
         benchmark_symbol="US.VT",
@@ -835,6 +841,9 @@ def test_run_auto_monitor_cleans_equity_history_and_reconciles_pending_orders() 
             }
         )
     )
+    import moomoo_bot.orchestrator.cycle as cycle_module
+    monkeypatch.setattr(cycle_module, "_LOCAL_SIM_PATH", tmp_path / "paper-sim-state.json")
+    monkeypatch.setattr(cycle_module, "_LOCAL_SIM_STATE_DB_PATH", tmp_path / "paper-sim-state.db")
     state_store = FakeStateStore(
         pending_orders=[
             OrderRecord(
@@ -875,12 +884,11 @@ def test_run_auto_monitor_cleans_equity_history_and_reconciles_pending_orders() 
     except KeyboardInterrupt:
         pass
 
-    assert state_store.order_status_updates == [
-        ("pending-1", "filled_all", 2.0),
-        ("1", "filled", 0.0),
-    ]
+    # Existing broker orders are reconciled read-only; new broker orders are never submitted.
+    assert state_store.order_status_updates == [("pending-1", "filled_all", 2.0)]
     assert state_store.cleanup_calls == [30]
     assert trade_client.get_order_frame_calls == 1
+    assert trade_client.submit_order_calls == 0
     assert sleep_calls == [1]
 
 
@@ -915,7 +923,7 @@ def test_run_auto_monitor_stops_when_kill_switch_is_active(monkeypatch) -> None:
     assert trade_client.submit_order_calls == 0
 
 
-def test_run_auto_monitor_triggers_daily_loss_limit_from_persisted_equity() -> None:
+def test_run_auto_monitor_triggers_daily_loss_limit_from_local_sim_equity(tmp_path, monkeypatch) -> None:
     settings = Settings(
         symbols="US.AAPL",
         benchmark_symbol="US.VT",
@@ -929,6 +937,11 @@ def test_run_auto_monitor_triggers_daily_loss_limit_from_persisted_equity() -> N
         account_value=94_000.0,
         position_frame=pd.DataFrame({"code": ["US.AAPL"], "qty": [2.0]}),
     )
+    import moomoo_bot.orchestrator.cycle as cycle_module
+    monkeypatch.setattr(cycle_module, "_LOCAL_SIM_PATH", tmp_path / "paper-sim-state.json")
+    monkeypatch.setattr(cycle_module, "_LOCAL_SIM_STATE_DB_PATH", tmp_path / "paper-sim-state.db")
+    from moomoo_bot.paper_simulator import PaperSimulator
+    PaperSimulator(state_path=tmp_path / "paper-sim-state.json", initial_cash=94_000.0).save()
     state_store = FakeStateStore(
         previous_equity=EquitySnapshot(
             timestamp="2025-01-02T21:00:00+00:00",
@@ -963,7 +976,7 @@ def test_run_auto_monitor_triggers_daily_loss_limit_from_persisted_equity() -> N
     except KeyboardInterrupt:
         pass
 
-    assert trade_client.submit_order_calls == 1
+    assert trade_client.submit_order_calls == 0
     assert sleep_calls == [1]
     assert state_store.recorded_equity[0]["market_date"] == "2025-01-03"
     assert state_store.saved_states[-1].halted is True
